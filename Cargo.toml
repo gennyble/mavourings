@@ -1,0 +1,13 @@
+[package]
+name = "small_http"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures-lite = "1.12.0" # Futures, but lighter
+async-io = "1.6.0"      # Async
+async-dup = "1.2.2"     # Arc for Async
+http = "0.2.4"          # HTTP Types
+thiserror = "1.0"       # Easier errors
