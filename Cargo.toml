@@ -11,3 +11,4 @@ async-io = "1.6.0"      # Async
 async-dup = "1.2.2"     # Arc for Async
 http = "0.2.4"          # HTTP Types
 thiserror = "1.0"       # Easier errors
+mime_guess = "2.0.3"    # Mime Types and Guessing Mimes from file suffixes

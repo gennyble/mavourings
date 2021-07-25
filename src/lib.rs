@@ -1,19 +1,53 @@
-use std::{net::TcpStream, string::FromUtf8Error};
+mod query;
+
+use std::{
+    fs::File,
+    io::Read,
+    net::TcpStream,
+    path::{Path, PathBuf},
+    string::FromUtf8Error,
+};
 
 use async_dup::Arc;
 use async_io::Async;
 use futures_lite::{
     io::{BufReader, BufWriter},
-    AsyncBufReadExt, AsyncWriteExt,
+    AsyncBufReadExt, AsyncReadExt, AsyncWriteExt,
 };
-use http::{method::InvalidMethod, Method, Request, Version};
+use http::{method::InvalidMethod, request, Method, Version};
+use mime_guess::{Mime, MimeGuess};
 use thiserror::Error;
 
-pub use http::Response;
+pub use query::{Parameter, Query, QueryParseError};
+
+pub use http::{Request, Response, StatusCode};
+
+enum BodyType {
+    None,
+    Chunked,
+    ContentLength(usize),
+}
+
+#[derive(Debug, PartialEq)]
+enum ConnectionKind {
+    Closed,
+    Close,
+    KeepAlive { timeout: usize, max_requests: usize },
+}
+
+impl ConnectionKind {
+    fn keepalive(timeout: usize, max_requests: usize) -> Self {
+        Self::KeepAlive {
+            timeout,
+            max_requests,
+        }
+    }
+}
 
 pub struct Connection {
     reader: BufReader<Arc<Async<TcpStream>>>,
     stream: Arc<Async<TcpStream>>,
+    kind: ConnectionKind,
 }
 
 impl Connection {
@@ -23,12 +57,85 @@ impl Connection {
         Self {
             reader: BufReader::new(arcstream.clone()),
             stream: arcstream,
+            kind: ConnectionKind::Close,
         }
     }
 
-    /// Attempt to parse the head of the HTTP request. The internal BufReader
-    /// is left at the start of the body
-    pub async fn parse_request(&mut self) -> Result<Request<()>, ConnectionError> {
+    pub async fn request(&mut self) -> Result<Option<Request<Vec<u8>>>, ConnectionError> {
+        if self.kind == ConnectionKind::Closed {
+            return Ok(None);
+        }
+
+        let (builder, body_type) = self.parse_request().await?;
+
+        let req = match body_type {
+            BodyType::None => builder.body(vec![])?,
+            BodyType::ContentLength(bytes) => {
+                let mut buffer: Vec<u8> = vec![0; bytes];
+
+                self.reader.read_exact(&mut buffer).await?;
+                builder.body(buffer)?
+            }
+            BodyType::Chunked => builder.body(self.parse_chunked().await?)?,
+        };
+
+        // HTTP/1.0 default is close, 1.1 is keep-alive
+        self.kind = match req.headers().get(http::header::CONNECTION) {
+            Some(value) => match value.to_str() {
+                Ok(string) if string == "close" => ConnectionKind::Close,
+                Ok(string) if string.to_lowercase() == "keep-alive" => {
+                    ConnectionKind::keepalive(0, 0)
+                }
+                _ => ConnectionKind::Close,
+            },
+            None => ConnectionKind::Close,
+        };
+
+        Ok(Some(req))
+    }
+
+    async fn parse_chunked(&mut self) -> Result<Vec<u8>, ConnectionError> {
+        let mut buffer: Vec<u8> = vec![];
+
+        loop {
+            let mut length_string = String::new();
+            self.reader.read_line(&mut length_string).await?;
+
+            let length_str = match length_string.strip_suffix("\r\n") {
+                Some(len) => len,
+                None => return Err(ConnectionError::ChunkedLengthMissingCRLF),
+            };
+
+            let length = usize::from_str_radix(length_str, 10)
+                .map_err(|_| ConnectionError::InvalidChunkedLength(length_string))?;
+
+            if length == 0 {
+                let mut onlycrlf = String::with_capacity(2);
+                self.reader.read_line(&mut onlycrlf).await?;
+
+                if onlycrlf == "\r\n" {
+                    return Ok(buffer);
+                } else {
+                    return Err(ConnectionError::ChunkedDataMissingCRLF);
+                }
+            }
+
+            let bytes_read = self.reader.read_until(b'\n', &mut buffer).await?;
+            match (buffer.pop(), buffer.pop()) {
+                (Some(a), Some(b)) if a == b'\n' && b == b'\r' => (),
+                _ => return Err(ConnectionError::ChunkedDataMissingCRLF),
+            }
+
+            if length + 2 != bytes_read {
+                return Err(ConnectionError::InvalidDataPart {
+                    expected: length + 2,
+                    got: bytes_read,
+                });
+            }
+        }
+    }
+
+    async fn parse_request(&mut self) -> Result<(request::Builder, BodyType), ConnectionError> {
         let mut buffer = Vec::new();
 
         loop {
@@ -69,6 +176,7 @@ impl Connection {
         }
 
         let mut request_builder = Request::builder().method(method).uri(path).version(version);
+        let mut body_type = BodyType::None;
 
         // headers
         for line in lines {
@@ -77,17 +185,27 @@ impl Connection {
                 None => return Err(ConnectionError::InvalidHeader(line.to_owned())),
             };
 
-            request_builder = request_builder.header(key, value);
+            if key.to_lowercase() == "transfer-encoding" && value.to_lowercase().contains("chunked")
+            {
+                body_type = BodyType::Chunked;
+            } else if key.to_lowercase() == "content-length" {
+                body_type = BodyType::ContentLength(
+                    usize::from_str_radix(value.trim(), 10)
+                        .map_err(|_| ConnectionError::InvalidContentLength(value.into()))?,
+                );
+            }
+
+            request_builder = request_builder.header(key, value.trim());
         }
 
         //todo: verify body is content-length long
 
-        Ok(request_builder.body(())?)
+        Ok((request_builder, body_type))
     }
 
     fn version_from_str<S: AsRef<str>>(string: S) -> Result<Version, ConnectionError> {
         match string.as_ref() {
-            "HTTP/0.9" => Ok(Version::HTTP_09),
+            "HTTP/0.9" => Err(ConnectionError::UnsupportedHttpVersion),
             "HTTP/1.0" => Ok(Version::HTTP_10),
             "HTTP/1.1" => Ok(Version::HTTP_11),
             "HTTP/2.0" => Err(ConnectionError::UnsupportedHttpVersion),
@@ -109,14 +227,14 @@ impl Connection {
         }
     }
 
-    pub async fn respond(self, response: Response<Vec<u8>>) -> Result<(), ConnectionError> {
+    pub async fn respond(&mut self, response: Response<Vec<u8>>) -> Result<(), ConnectionError> {
         let status_line = format!(
             "{} {}\r\n",
             Self::str_from_version(response.version()),
             response.status()
         );
 
-        let mut writer = BufWriter::new(self.stream);
+        let mut writer = BufWriter::new(self.stream.clone());
 
         writer.write_all(status_line.as_bytes()).await?;
 
@@ -131,14 +249,65 @@ impl Connection {
         writer.write(response.body()).await?;
         writer.flush().await?;
 
+        match self.kind {
+            ConnectionKind::Close => {
+                self.stream.close().await?;
+                self.kind = ConnectionKind::Closed;
+            }
+            _ => (),
+        }
+
         Ok(())
+    }
+
+    pub async fn send_file_unchecked<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        forced_mime: Option<Mime>,
+    ) -> Result<(), ConnectionError> {
+        let path = path.as_ref();
+        let mime = if let Some(mime) = forced_mime {
+            mime
+        } else {
+            MimeGuess::from_path(path).first_or_octet_stream()
+        };
+
+        let mut buffer = vec![];
+        let mut file = File::open(path)?;
+        file.read_to_end(&mut buffer)?;
+
+        self.respond(
+            Response::builder()
+                .header("content-type", mime.to_string())
+                .header("content-length", buffer.len())
+                .body(buffer)?,
+        )
+        .await
+    }
+
+    pub async fn send_file<R: Into<PathBuf>, S: AsRef<Path>>(
+        &mut self,
+        root: R,
+        file: S,
+        forced_mime: Option<Mime>,
+    ) -> Result<(), ConnectionError> {
+        let root: PathBuf = root.into();
+        let file = file.as_ref();
+
+        let canonical = file.canonicalize()?;
+
+        if canonical.starts_with(root) && canonical.is_file() {
+            self.send_file_unchecked(file, forced_mime).await
+        } else {
+            Err(ConnectionError::FileOutsideRoot)
+        }
     }
 }
 
 #[derive(Debug, Error)]
 pub enum ConnectionError {
-    #[error("an error occured while trying to read from the stream")] //todo: better error message
-    ReadError(#[from] std::io::Error),
+    #[error("io error: {0}")] //todo: better error message
+    IoError(#[from] std::io::Error),
 
     #[error("no data was sent")]
     NoRequest,
@@ -166,4 +335,18 @@ pub enum ConnectionError {
 
     #[error("headers should be in the foramt of key:value. '{0}' is not")]
     InvalidHeader(String),
+    #[error("invalid content length {0}")]
+    InvalidContentLength(String),
+
+    #[error("invalid length in chunked encoding")]
+    InvalidChunkedLength(String),
+    #[error("chunked length missing CR LF")] //todo: better error message
+    ChunkedLengthMissingCRLF,
+    #[error("chunked data missing CR LF")] //todo: better error message
+    ChunkedDataMissingCRLF,
+    #[error("invalid data part in chunked encoding. Expect {expected} bytes. Got {got}")]
+    InvalidDataPart { expected: usize, got: usize },
+
+    #[error("could not serve the file as it resolved outside the root path")]
+    FileOutsideRoot,
 }
