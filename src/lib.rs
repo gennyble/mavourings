@@ -20,7 +20,7 @@ use thiserror::Error;
 
 pub use query::{Parameter, Query, QueryParseError};
 
-pub use http::{Request, Response, StatusCode};
+pub use http::{uri::InvalidUri, Request, Response, StatusCode, Uri};
 
 enum BodyType {
     None,
@@ -227,7 +227,10 @@ impl Connection {
         }
     }
 
-    pub async fn respond(&mut self, response: Response<Vec<u8>>) -> Result<(), ConnectionError> {
+    pub async fn respond<B: AsBytes>(
+        &mut self,
+        response: Response<B>,
+    ) -> Result<(), ConnectionError> {
         let status_line = format!(
             "{} {}\r\n",
             Self::str_from_version(response.version()),
@@ -246,7 +249,8 @@ impl Connection {
         }
         writer.write_all(b"\r\n").await?;
 
-        writer.write(response.body()).await?;
+        let body = response.body().as_byte_box();
+        writer.write(&body).await?;
         writer.flush().await?;
 
         match self.kind {
@@ -301,6 +305,28 @@ impl Connection {
         } else {
             Err(ConnectionError::FileOutsideRoot)
         }
+    }
+}
+
+pub trait AsBytes {
+    fn as_byte_box(&self) -> Box<&[u8]>;
+}
+
+impl AsBytes for Vec<u8> {
+    fn as_byte_box(&self) -> Box<&[u8]> {
+        Box::new(self.as_slice())
+    }
+}
+
+impl AsBytes for String {
+    fn as_byte_box(&self) -> Box<&[u8]> {
+        Box::new(self.as_bytes())
+    }
+}
+
+impl AsBytes for &str {
+    fn as_byte_box(&self) -> Box<&[u8]> {
+        Box::new(self.as_bytes())
     }
 }
 
