@@ -14,13 +14,13 @@ use futures_lite::{
     io::{BufReader, BufWriter},
     AsyncBufReadExt, AsyncReadExt, AsyncWriteExt,
 };
-use http::{method::InvalidMethod, request, Method, Version};
+use http::{method::InvalidMethod, request, Version};
 use mime_guess::{Mime, MimeGuess};
 use thiserror::Error;
 
 pub use query::{Parameter, Query, QueryParseError};
 
-pub use http::{uri::InvalidUri, Request, Response, StatusCode, Uri};
+pub use http::{uri::InvalidUri, Error as HttpError, Method, Request, Response, StatusCode, Uri};
 
 enum BodyType {
     None,
@@ -249,7 +249,7 @@ impl Connection {
         }
         writer.write_all(b"\r\n").await?;
 
-        let body = response.body().as_byte_box();
+        let body = response.body().bytes();
         writer.write(&body).await?;
         writer.flush().await?;
 
@@ -308,25 +308,43 @@ impl Connection {
     }
 }
 
-pub trait AsBytes {
-    fn as_byte_box(&self) -> Box<&[u8]>;
+pub trait AsBytes: Send + Sync {
+    fn bytes(&self) -> &[u8];
+}
+
+impl AsBytes for &[u8] {
+    fn bytes(&self) -> &[u8] {
+        self
+    }
+}
+
+impl AsBytes for Box<&[u8]> {
+    fn bytes(&self) -> &[u8] {
+        self
+    }
+}
+
+impl AsBytes for Box<dyn AsBytes> {
+    fn bytes(&self) -> &[u8] {
+        self.as_ref().bytes()
+    }
 }
 
 impl AsBytes for Vec<u8> {
-    fn as_byte_box(&self) -> Box<&[u8]> {
-        Box::new(self.as_slice())
+    fn bytes(&self) -> &[u8] {
+        self.as_slice()
     }
 }
 
 impl AsBytes for String {
-    fn as_byte_box(&self) -> Box<&[u8]> {
-        Box::new(self.as_bytes())
+    fn bytes(&self) -> &[u8] {
+        self.as_bytes()
     }
 }
 
 impl AsBytes for &str {
-    fn as_byte_box(&self) -> Box<&[u8]> {
-        Box::new(self.as_bytes())
+    fn bytes(&self) -> &[u8] {
+        self.as_bytes()
     }
 }
 
