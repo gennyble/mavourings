@@ -1,14 +1,30 @@
 [package]
-name = "small_http"
+name = "mavourings"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-futures-lite = "1.12.0" # Futures, but lighter
-async-io = "1.6.0"      # Async
-async-dup = "1.2.2"     # Arc for Async
-http = "0.2.4"          # HTTP Types
 thiserror = "1.0"       # Easier errors
-mime_guess = "2.0.3"    # Mime Types and Guessing Mimes from file suffixes
+mime_guess = {version = "2.0.3", optional = true } # [send_file] Mime Types and Guessing Mimes from file suffixes
+hyper = { version = "0.14", optional = true } # [send_file] We use the Response type in send_file
+bempline = { path = "../bempline", optional = true }
+
+# For cookies and their time formatting
+[dependencies.time]
+version = "0.3.9"
+features = ["formatting", "macros"]
+optional = true
+
+# tokio because we are async file reading
+[dependencies.tokio]
+version = "1"
+features = ["fs"]
+optional = true
+
+[features]
+default = ["cookie", "send_file", "template"]
+cookie = ["time"]
+send_file = ["mime_guess", "hyper", "tokio"]
+template = ["send_file", "bempline"]
