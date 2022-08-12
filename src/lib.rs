@@ -32,8 +32,8 @@ pub mod template {
 	use mime_guess::{Mime, MimeGuess};
 
 	pub struct Template {
-		document: Document,
-		guess: Option<Mime>,
+		pub document: Document,
+		pub guess: Option<Mime>,
 	}
 
 	impl Template {
