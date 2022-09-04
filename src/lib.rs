@@ -23,11 +23,31 @@ pub async fn file_string_reply<P: AsRef<std::path::Path>>(
 		.map_err(|e| Box::new(e) as Box<dyn Error>)
 }
 
+#[cfg(feature = "send_file")]
+pub async fn file_reply<P: AsRef<std::path::Path>>(
+	path: P,
+) -> Result<hyper::Response<hyper::Body>, Box<dyn std::error::Error>> {
+	use hyper::{Body, Response};
+	use mime_guess::MimeGuess;
+	use std::error::Error;
+
+	let file = tokio::fs::read(path.as_ref()).await?;
+
+	let mut resp = Response::builder().status(200);
+
+	if let Some(guess) = MimeGuess::from_path(path).first() {
+		resp = resp.header("content-type", guess.to_string());
+	};
+
+	resp.body(Body::from(file))
+		.map_err(|e| Box::new(e) as Box<dyn Error>)
+}
+
 #[cfg(feature = "template")]
 pub mod template {
-	use std::{error::Error, str::FromStr};
+	use std::error::Error;
 
-	use bempline::Document;
+	use bempline::{Document, Options, options::IncludeMethod};
 	use hyper::{Body, Response};
 	use mime_guess::{Mime, MimeGuess};
 
@@ -41,7 +61,11 @@ pub mod template {
 			//TODO: gen- remove unwrap
 			let file = tokio::fs::read_to_string(path.as_ref()).await.unwrap();
 
-			let document = Document::from_str(&file).unwrap();
+			let document = Document::from_str(
+				&file,
+				Options::default().include_path(IncludeMethod::Path(path.as_ref().to_path_buf())),
+			)
+			.unwrap();
 
 			let guess = MimeGuess::from_path(path).first();
 
