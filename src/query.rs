@@ -1,4 +1,4 @@
-use std::vec::IntoIter;
+use std::{str::FromStr, vec::IntoIter};
 
 use thiserror::Error;
 
@@ -14,7 +14,7 @@ impl Query {
 	/// # Examples
 	///
 	///```rust
-	///use small_http::Query;
+	///use mavourings::query::Query;
 	///let query: Query = "key=value&boolean".parse().unwrap();
 	///
 	///assert!(query.has("key"));
@@ -38,7 +38,7 @@ impl Query {
 	/// # Examples
 	///
 	///```rust
-	/// use small_http::Query;
+	/// use mavourings::query::Query;
 	///
 	/// let query: Query = "key=value&boolean".parse().unwrap();
 	///
@@ -62,7 +62,7 @@ impl Query {
 	/// # Examples
 	///
 	///```rust
-	/// use small_http::Query;
+	/// use mavourings::query::Query;
 	///
 	/// let query: Query = "key=value&boolean".parse().unwrap();
 	///
@@ -86,7 +86,7 @@ impl Query {
 	/// # Examples
 	///
 	///```rust
-	/// use small_http::Query;
+	/// use mavourings::query::Query;
 	///
 	/// let query: Query = "key=value&boolean".parse().unwrap();
 	///
@@ -104,6 +104,25 @@ impl Query {
 		None
 	}
 
+	/// Parses the first value from a key-value pair, if one is found, and returns
+	/// the result, or None if it can't be found.
+	///
+	/// # Example
+	///
+	/// ```rust
+	/// use mavourings::query::Query;
+	///
+	/// let query: Query = "id=256".parse().unwrap();
+	///
+	/// assert_eq!(query.parse_first_value("id"), Some(Ok(256)))
+	/// ```
+	pub fn parse_first_value<S: AsRef<str>, T: FromStr>(
+		&self,
+		search: S,
+	) -> Option<Result<T, <T as FromStr>::Err>> {
+		self.get_first_value(search).map(|v| v.parse())
+	}
+
 	/// Processes a string, converting any percent encoded characteres into
 	/// their proper representations.
 	///
@@ -119,7 +138,7 @@ impl Query {
 	/// # Examples
 	///
 	///```rust
-	///use small_http::{Query, QueryParseError};
+	///use mavourings::query::{Query, QueryParseError};
 	///
 	///assert_eq!(Query::url_decode("a+space+two%20ways%21", true), Ok(String::from("a space two ways!")));
 	///assert_eq!(Query::url_decode("invalid%1Z", true), Ok(String::from("invalid%1Z")));
@@ -185,7 +204,7 @@ impl Query {
 	/// # Examples
 	///
 	///```rust
-	///use small_http::{Query, QueryParseError};
+	///use mavourings::query::{Query, QueryParseError};
 	///
 	///assert_eq!(Query::url_encode("encode me spaces!"), String::from("encode%20me%20spaces%21"));
 	///assert_eq!(Query::url_encode("🥺"), String::from("%f0%9f%a5%ba"));
