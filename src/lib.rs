@@ -47,7 +47,7 @@ pub async fn file_reply<P: AsRef<std::path::Path>>(
 pub mod template {
 	use std::error::Error;
 
-	use bempline::{Document, Options, options::IncludeMethod};
+	use bempline::{options::IncludeMethod, Document, Options};
 	use hyper::{Body, Response};
 	use mime_guess::{Mime, MimeGuess};
 
@@ -80,7 +80,10 @@ pub mod template {
 			let mut resp = Response::builder().status(200);
 
 			if let Some(guess) = self.guess {
-				resp = resp.header("content-type", guess.to_string());
+				resp = resp.header(
+					"content-type",
+					format!("{}; charset=utf-8", guess.to_string()),
+				);
 			};
 
 			resp.body(Body::from(self.document.compile()))
