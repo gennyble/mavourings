@@ -9,7 +9,7 @@ edition = "2021"
 thiserror = "1.0" # Easier errors
 mime_guess = {version = "2.0.3", optional = true } # [send_file] Mime Types and Guessing Mimes from file suffixes
 hyper = { version = "0.14", optional = true } # [send_file] We use the Response type in send_file
-bempline = { version = "0.6.0", optional = true } # [template] this is the templating crate itself
+bempline = { version = "0.6.1", optional = true } # [template] this is the templating crate itself
 
 # For cookies and their time formatting
 [dependencies.time]
