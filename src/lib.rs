@@ -45,11 +45,17 @@ pub async fn file_reply<P: AsRef<std::path::Path>>(
 
 #[cfg(feature = "template")]
 pub mod template {
-	use std::error::Error;
+	use core::fmt;
+	use std::{
+		error::Error,
+		ops::{Deref, DerefMut},
+	};
 
 	use bempline::{options::IncludeMethod, Document, Options};
 	use hyper::{Body, Response};
 	use mime_guess::{Mime, MimeGuess};
+
+	pub use bempline::{set, variables};
 
 	pub struct Template {
 		pub document: Document,
@@ -72,7 +78,7 @@ pub mod template {
 			Self { document, guess }
 		}
 
-		pub fn set<K: Into<String>, V: Into<String>>(&mut self, key: K, value: V) {
+		pub fn set<K: Into<String>, V: fmt::Display>(&mut self, key: K, value: V) {
 			self.document.set(key, value)
 		}
 
@@ -88,6 +94,20 @@ pub mod template {
 
 			resp.body(Body::from(self.document.compile()))
 				.map_err(|e| Box::new(e) as Box<dyn Error>)
+		}
+	}
+
+	impl Deref for Template {
+		type Target = Document;
+
+		fn deref(&self) -> &Self::Target {
+			&self.document
+		}
+	}
+
+	impl DerefMut for Template {
+		fn deref_mut(&mut self) -> &mut Self::Target {
+			&mut self.document
 		}
 	}
 }
