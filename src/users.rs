@@ -1,6 +1,4 @@
-use std::{
-	collections::HashMap, convert::Infallible, fmt, io, ops::Deref, str::FromStr, time::Duration,
-};
+use std::{collections::HashMap, fmt, io, str::FromStr, time::Duration};
 
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use camino::Utf8PathBuf;
@@ -37,16 +35,6 @@ impl Users {
 
 	pub fn set_user_db_path(&mut self, path: Utf8PathBuf) {
 		self.user_db_path = Some(path);
-	}
-
-	/// Clones all the user entries and returns a [Vec<UserEntry>]
-	pub(crate) async fn entries(&self) -> Vec<UserEntry> {
-		self.users
-			.read()
-			.await
-			.values()
-			.map(<_>::to_owned)
-			.collect()
 	}
 
 	/// Registers a User, saving their details in memory and returning the value
