@@ -1,6 +1,9 @@
 #[cfg(feature = "cookie")]
 pub mod cookie;
 
+#[cfg(feature = "users")]
+pub mod users;
+
 pub mod query;
 
 #[cfg(feature = "send_file")]
