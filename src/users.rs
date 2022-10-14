@@ -131,7 +131,8 @@ impl Users {
 		}
 
 		let mut file = tokio::fs::File::create(path).await?;
-		file.write_all(buf.as_bytes()).await
+		file.write_all(buf.as_bytes()).await?;
+		file.flush().await
 	}
 
 	pub async fn load<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
