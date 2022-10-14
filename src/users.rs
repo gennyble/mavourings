@@ -11,7 +11,7 @@ const SESSION_ID_LENGTH: usize = 6;
 /// Random Base58 string, `count` characters long, using OsRng which is assumed
 /// to be secure
 /// > assumed that system always provides high-quality cryptographically secure random data
-fn random_base58(count: usize) -> String {
+pub fn random_base58(count: usize) -> String {
 	let mut rng = OsRng::default();
 	std::iter::from_fn(|| Some(BASE58[rng.gen_range(0..BASE58.len())] as char))
 		.take(count)
@@ -148,7 +148,26 @@ impl UserStub {
 	}
 }
 
-pub type UserId = String;
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct UserId(String);
+
+impl UserId {
+	pub fn as_str(&self) -> &str {
+		&self.0
+	}
+}
+
+impl fmt::Display for UserId {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{}", self.0)
+	}
+}
+
+impl From<String> for UserId {
+	fn from(s: String) -> Self {
+		Self(s)
+	}
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UserEntry {
@@ -207,12 +226,12 @@ impl UserEntry {
 
 	/// Get a new [UserId]
 	fn generate_user_id() -> UserId {
-		random_base58(USER_ID_LENGTH)
+		UserId(random_base58(USER_ID_LENGTH))
 	}
 
 	/// Get a new [SessionId]
 	fn generate_session_id() -> SessionId {
-		random_base58(SESSION_ID_LENGTH)
+		SessionId(random_base58(SESSION_ID_LENGTH))
 	}
 }
 
@@ -231,7 +250,7 @@ impl fmt::Display for UserEntry {
 
 		let mut session_str = String::new();
 		for session in &self.sessions {
-			session_str.push_str(&session);
+			session_str.push_str(session.as_str());
 			session_str.push(',');
 		}
 
@@ -245,7 +264,7 @@ impl FromStr for UserEntry {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let (id, s) = match s.split_once(" ") {
-			Some((id, s)) => (id.to_string(), s),
+			Some((id, s)) => (UserId(id.to_string()), s),
 			None => return Err(()),
 		};
 
@@ -282,7 +301,7 @@ impl FromStr for UserEntry {
 					if sid.is_empty() {
 						None
 					} else {
-						Some(sid.to_string())
+						Some(SessionId(sid.to_string()))
 					}
 				})
 				.collect(),
@@ -298,7 +317,26 @@ impl FromStr for UserEntry {
 	}
 }
 
-pub type SessionId = String;
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct SessionId(String);
+
+impl SessionId {
+	pub fn as_str(&self) -> &str {
+		&self.0
+	}
+}
+
+impl fmt::Display for SessionId {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{}", self.0)
+	}
+}
+
+impl From<String> for SessionId {
+	fn from(s: String) -> Self {
+		Self(s)
+	}
+}
 
 /// Get the value bit of a Set-Cookie header to create a session
 fn session_set_cookie(sid: &SessionId) -> String {
