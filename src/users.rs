@@ -37,9 +37,9 @@ impl Users {
 		email: Option<String>,
 		username: String,
 		password: String,
-	) -> UserStub {
+	) -> Session {
 		let mut entry = UserEntry::new_user(email, username, password);
-		let stub = entry.new_session();
+		let session = entry.new_session();
 
 		//FIXME: gen- we should check here that the UserId is unique. The
 		//  chances are low but let's not loose data
@@ -48,12 +48,12 @@ impl Users {
 			users.insert(entry.id.clone(), entry);
 		}
 
-		stub
+		session
 	}
 
 	/// Login a user. We find their [UserEntry] by looking for their username
 	/// and then verify their password. Returns a [UserStub]
-	pub async fn login(&self, username: String, password: String) -> Option<UserStub> {
+	pub async fn login(&self, username: String, password: String) -> Option<Session> {
 		let mut lock = self.users.write().await;
 
 		let entry = lock.values_mut().find(|entry| entry.username == username);
@@ -79,7 +79,7 @@ impl Users {
 			match user.sessions.iter().position(|v| *v == sid) {
 				Some(idx) => {
 					user.sessions.remove(idx);
-					return Some(user.stub(sid));
+					return Some(user.stub());
 				}
 				None => (),
 			}
@@ -95,12 +95,30 @@ impl Users {
 
 			for user in lock.values() {
 				if user.sessions.contains(&sid) {
-					return Some(user.stub(sid));
+					return Some(user.stub());
 				}
 			}
 		}
 
 		None
+	}
+
+	/// Searches for users by their username, returning a `Vec<[UserStub]>` containing any found users
+	pub async fn stub_by_username<S: AsRef<str>>(&self, username: S) -> Vec<UserStub> {
+		let username = username.as_ref();
+		let mut matches = vec![];
+
+		{
+			let lock = self.users.read().await;
+
+			for user in lock.values() {
+				if user.username == username {
+					matches.push(user.stub())
+				}
+			}
+		}
+
+		matches
 	}
 
 	pub async fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
@@ -133,12 +151,17 @@ impl Users {
 
 /// Information about a user. Returned by [UserEntry::register] and [UserEnry::login].
 pub struct UserStub {
+	pub email: Option<String>,
 	pub id: UserId,
 	pub username: String,
+}
+
+pub struct Session {
+	pub stub: UserStub,
 	pub sid: SessionId,
 }
 
-impl UserStub {
+impl Session {
 	pub fn login_cookie(&self) -> String {
 		session_set_cookie(&self.sid)
 	}
@@ -193,18 +216,22 @@ impl UserEntry {
 		}
 	}
 
-	pub fn new_session(&mut self) -> UserStub {
+	pub fn new_session(&mut self) -> Session {
 		let sid = Self::generate_session_id();
 		self.sessions.push(sid.clone());
-		self.stub(sid)
+
+		Session {
+			stub: self.stub(),
+			sid,
+		}
 	}
 
 	/// Make a [UserStub] with the provided [SessionId]
-	pub fn stub(&self, sid: SessionId) -> UserStub {
+	pub fn stub(&self) -> UserStub {
 		UserStub {
+			email: self.email.clone(),
 			id: self.id.clone(),
 			username: self.username.clone(),
-			sid,
 		}
 	}
 
