@@ -1,7 +1,6 @@
-use std::{collections::HashMap, fmt, io, str::FromStr, time::Duration};
+use std::{collections::HashMap, fmt, io, path::Path, str::FromStr, time::Duration};
 
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use camino::Utf8PathBuf;
 use rand::{rngs::OsRng, Rng};
 use tokio::{io::AsyncWriteExt, sync::RwLock};
 
@@ -21,20 +20,14 @@ fn random_base58(count: usize) -> String {
 
 #[derive(Debug)]
 pub struct Users {
-	user_db_path: Option<Utf8PathBuf>,
 	pub(crate) users: RwLock<HashMap<UserId, UserEntry>>,
 }
 
 impl Users {
 	pub fn new() -> Users {
 		Self {
-			user_db_path: None,
 			users: RwLock::new(HashMap::new()),
 		}
-	}
-
-	pub fn set_user_db_path(&mut self, path: Utf8PathBuf) {
-		self.user_db_path = Some(path);
 	}
 
 	/// Registers a User, saving their details in memory and returning the value
@@ -110,13 +103,7 @@ impl Users {
 		None
 	}
 
-	pub async fn save(&self) -> io::Result<()> {
-		let path = if let Some(path) = &self.user_db_path {
-			path
-		} else {
-			panic!("regusing to save user db")
-		};
-
+	pub async fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
 		let mut buf = String::new();
 		{
 			let lock = self.users.read().await;
@@ -129,13 +116,7 @@ impl Users {
 		file.write_all(buf.as_bytes()).await
 	}
 
-	pub async fn load(&self) -> io::Result<()> {
-		let path = if let Some(path) = &self.user_db_path {
-			path
-		} else {
-			panic!("cannot load with no user db path")
-		};
-
+	pub async fn load<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
 		let string = tokio::fs::read_to_string(path).await?;
 
 		{
