@@ -52,7 +52,7 @@ impl Users {
 	}
 
 	/// Login a user. We find their [UserEntry] by looking for their username
-	/// and then verify their password. Returns a [UserStub]
+	/// and then verify their password. Returns a [Session]
 	pub async fn login(&self, username: String, password: String) -> Option<Session> {
 		let mut lock = self.users.write().await;
 
@@ -63,6 +63,26 @@ impl Users {
 			Some(entry) => {
 				if entry.verify_password(password) {
 					Some(entry.new_session())
+				} else {
+					None
+				}
+			}
+		}
+	}
+
+	/// Login a user. We find their [UserEntry] by looking for their username
+	/// and then verify their password. Returns an `Option<[UserStub]>` which
+	/// will only be filled if a user was found and their password verified.
+	pub async fn authenticate(&self, username: String, password: String) -> Option<UserStub> {
+		let mut lock = self.users.write().await;
+
+		let entry = lock.values_mut().find(|entry| entry.username == username);
+
+		match entry {
+			None => None,
+			Some(entry) => {
+				if entry.verify_password(password) {
+					Some(entry.stub())
 				} else {
 					None
 				}
@@ -88,6 +108,24 @@ impl Users {
 		None
 	}
 
+	/// Searches for a user by an assocaited [SessionId], returning a [Session] if a user is found and `None` otherwise
+	pub async fn session_by_id(&self, sid: SessionId) -> Option<Session> {
+		{
+			let lock = self.users.read().await;
+
+			for user in lock.values() {
+				if user.sessions.contains(&sid) {
+					return Some(Session {
+						stub: user.stub(),
+						sid,
+					});
+				}
+			}
+		}
+
+		None
+	}
+
 	/// Searches for a user by an assocaited [SessionId], returning a [UserStub] if a user is found and `None` otherwise
 	pub async fn stub_by_session(&self, sid: SessionId) -> Option<UserStub> {
 		{
@@ -101,6 +139,10 @@ impl Users {
 		}
 
 		None
+	}
+
+	pub async fn stub_by_uid(&self, uid: UserId) -> Option<UserStub> {
+		self.users.read().await.get(&uid).map(|u| u.stub())
 	}
 
 	/// Searches for users by their username, returning a `Vec<[UserStub]>` containing any found users
