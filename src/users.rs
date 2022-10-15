@@ -30,6 +30,16 @@ impl Users {
 		}
 	}
 
+	pub async fn ids(&self) -> Vec<UserId> {
+		let lock = self.users.read().await;
+		lock.keys().map(<_>::to_owned).collect()
+	}
+
+	pub async fn stubs(&self) -> Vec<UserStub> {
+		let lock = self.users.read().await;
+		lock.values().map(|entry| entry.stub()).collect()
+	}
+
 	/// Registers a User, saving their details in memory and returning the value
 	/// to use with a Set-Cookie heder to create the session on the client.
 	pub async fn register(
@@ -193,6 +203,7 @@ impl Users {
 }
 
 /// Information about a user. Returned by [UserEntry::register] and [UserEnry::login].
+#[derive(Clone, Debug)]
 pub struct UserStub {
 	pub email: Option<String>,
 	pub id: UserId,
