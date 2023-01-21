@@ -4,6 +4,9 @@ pub mod cookie;
 #[cfg(feature = "users")]
 pub mod users;
 
+#[cfg(feature = "extractors")]
+pub mod extractors;
+
 pub mod query;
 
 #[cfg(feature = "send_file")]

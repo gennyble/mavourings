@@ -6,7 +6,7 @@ use tokio::{io::AsyncWriteExt, sync::RwLock};
 
 const BASE58: &'static [u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const USER_ID_LENGTH: usize = 6;
-const SESSION_ID_LENGTH: usize = 6;
+const SESSION_ID_LENGTH: usize = 12;
 
 /// Random Base58 string, `count` characters long, using OsRng which is assumed
 /// to be secure
@@ -47,18 +47,23 @@ impl Users {
 		email: Option<String>,
 		username: String,
 		password: String,
-	) -> Session {
-		let mut entry = UserEntry::new_user(email, username, password);
-		let session = entry.new_session();
-
-		//FIXME: gen- we should check here that the UserId is unique. The
-		//  chances are low but let's not loose data
-		{
-			let mut users = self.users.write().await;
-			users.insert(entry.id.clone(), entry);
+	) -> Result<Session, Error> {
+		if self.stub_by_username(&username).await.is_some() {
+			return Err(Error::UsernameTaken);
 		}
 
-		session
+		let mut entry = UserEntry::new_user(email, username, password);
+
+		let mut users = self.users.write().await;
+		loop {
+			if users.contains_key(&entry.id) {
+				entry.id = UserEntry::generate_user_id();
+			} else {
+				let session = entry.new_session();
+				users.insert(entry.id.clone(), entry);
+				break Ok(session);
+			}
+		}
 	}
 
 	/// Login a user. We find their [UserEntry] by looking for their username
@@ -155,22 +160,15 @@ impl Users {
 		self.users.read().await.get(&uid).map(|u| u.stub())
 	}
 
-	/// Searches for users by their username, returning a `Vec<[UserStub]>` containing any found users
-	pub async fn stub_by_username<S: AsRef<str>>(&self, username: S) -> Vec<UserStub> {
+	/// Searches for a user by their username, returning a `Option<UserStub>` if one is found
+	pub async fn stub_by_username<S: AsRef<str>>(&self, username: S) -> Option<UserStub> {
 		let username = username.as_ref();
-		let mut matches = vec![];
 
-		{
-			let lock = self.users.read().await;
+		let lock = self.users.read().await;
 
-			for user in lock.values() {
-				if user.username == username {
-					matches.push(user.stub())
-				}
-			}
-		}
-
-		matches
+		lock.values()
+			.find(|entry| entry.username == username)
+			.map(|entry| entry.stub())
 	}
 
 	pub async fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
@@ -202,6 +200,14 @@ impl Users {
 	}
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+	#[error("Username may not contain spaces or newlines")]
+	InvalidUsername,
+	#[error("Username already in use")]
+	UsernameTaken,
+}
+
 /// Information about a user. Returned by [UserEntry::register] and [UserEnry::login].
 #[derive(Clone, Debug)]
 pub struct UserStub {
@@ -225,7 +231,7 @@ impl Session {
 	}
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UserId(String);
 
 impl UserId {
@@ -398,8 +404,8 @@ impl FromStr for UserEntry {
 	}
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct SessionId(String);
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SessionId(pub String);
 
 impl SessionId {
 	pub fn as_str(&self) -> &str {
@@ -417,6 +423,10 @@ impl From<String> for SessionId {
 	fn from(s: String) -> Self {
 		Self(s)
 	}
+}
+
+pub fn check_username(name: &str) -> bool {
+	!(name.contains(' ') || name.contains('\n'))
 }
 
 /// Get the value bit of a Set-Cookie header to create a session
