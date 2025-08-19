@@ -21,7 +21,7 @@ features = ["derive"]
 
 # For cookies and their time formatting
 [dependencies.time]
-version = "0.3.9"
+version = "0.3.41"
 features = ["formatting", "macros"]
 optional = true
 
